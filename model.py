@@ -43,10 +43,18 @@ class Product(IntEnum):
     MEDICINE = 2
 
 
-class Item:
-    def __init__(self, name: str, product: Product) -> None:
+class Item(Agent):
+    def __init__(self, unique_id: int, model: Model, name: str, product: Product) -> None:
+        super().__init__(unique_id, model)
+        
         self.name = name
         self.product = product
+
+    def step(self) -> None:
+        pass
+
+    def advance(self) -> None:
+        pass
 
 
 class Pallet(Agent):
@@ -58,6 +66,11 @@ class Pallet(Agent):
 
         self.in_robot = False
 
+    def step(self) -> None:
+        pass
+
+    def advance(self) -> None:
+        pass
 
 class ChargingStation(Agent):
     def __init__(self, unique_id: int, model: Model) -> None:
@@ -378,14 +391,65 @@ class Spawner(Agent):
         
         self.spawns_items = spawns_items
 
-        self.queue: List[] = []
+        self.queue: List[Product] = []
+        self.spawn_rate = 5
+
+        self.last_spawn = 0
 
     def step(self) -> None:
+        if self.last_spawn > self.spawn_rate and np.random.rand() < 0.5:
+            self.last_spawn = 0
+            self.queue.append(np.random.choice(self.products))
+
+        self.last_spawn += 1
+
+    def advance(self) -> None:
+        # Check if the position is empty
+        if [product for product in self.model.grid.get_cell_list_contents([self.pos])
+                if isinstance(product, Union[Item, Pallet])] > 0 or not self.queue:
+            return
         
+        self.last_spawn = 0
+        product = self.queue.pop(0)
+        new_object = None
+
+        if self.spawns_items:
+            new_object = Item(self.model.next_id(), self.model, product.name, product)
+        else:
+            new_object = Pallet(self.model.next_id(), self.model, product)
+
+        self.model.grid.place_agent(new_object, self.pos)
+        self.model.schedule.add(new_object)
+        # Create a new task
+        self.model.create_task(product, start=self.pos)
 
 
 class Despawner(Agent):
-    pass
+    def __init__(self, unique_id: int, model: Model) -> None:
+        super().__init__(unique_id, model)
+
+        self.queue: List[Product] = []
+
+        self.request_rate = 5
+        self.last_request = 0
+
+    def step(self) -> None:
+        if self.last_request > self.request_rate and np.random.rand() < 0.5:
+            self.last_request = 0
+            self.queue.append(np.random.choice(self.products))
+
+        self.last_request += 1
+
+    def advance(self) -> None:
+        if self.queue is None:
+            return
+        
+        pallets = [pallet for pallet in self.model.grid.get_cell_list_contents([self.pos]) if isinstance(pallet, Pallet)]
+
+        if len(pallets) > 0 and pallets[0].product == self.queue[0]:
+            item = pallets[0]
+            self.model.grid.remove_agent(item)
+            self.model.schedule.remove(item)
 
 
 class Palletizer(Agent):
