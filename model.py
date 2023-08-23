@@ -76,20 +76,68 @@ class ChargingStation(Agent):
     def __init__(self, unique_id: int, model: Model) -> None:
         super().__init__(unique_id, model)
 
+    def step(self) -> None:
+        pass
+
+    def advance(self) -> None:
+        pass
+
 
 class Task:
+    """
+    A class representing a task to be completed by a robot in the warehouse.
+
+    Attributes:
+    -----------
+    product : Product
+        The product associated with the task.
+    start : Tuple[int, int], optional
+        The starting location of the robot. If None, the robot will pick up the pallet from the storage.
+    destination : Tuple[int, int], optional
+        The destination location of the robot. If None, the robot will drop off the pallet in the storage.
+    robot : Robot, optional
+        The robot assigned to complete the task.
+    """
+
     def __init__(
             self, unique_id: int, product: Product,
             destination: Tuple[int, int] = None, start: Tuple[int, int] = None) -> None:
         self.product = product
-        # If start is None, the robot will pick up the pallet from the storage
         self.start = start
-        # If destination is None, the robot will drop off the pallet in the storage
         self.destination = destination
         self.robot = None
 
 
 class Robot(Agent):
+    """
+    A robot agent that can move around the warehouse, pick up and deliver pallets, and charge its battery.
+
+    Attributes:
+        unique_id : int 
+            A unique identifier for the robot.
+        model : Model 
+            The model that the robot belongs to.
+        storage : List Tuple[int, int]])
+            A list of coordinates representing available storage spaces.
+        speed : int 
+            The speed of the robot in grid cells per step.
+        weight_capacity : int 
+            The maximum weight that the robot can carry.
+        charging_rate : int 
+            The rate at which the robot's battery charges per step.
+
+    Properties:
+        current_task (Optional[Task]): The current task that the robot is working on.
+
+    Methods:
+        step(): Advances the robot by one step in its current state.
+        advance(): Advances the robot by one step in its current position.
+        send_message(subject: str, data: Any): Sends a message to another robot.
+        broadcast_message(subject: str, data: Any): Broadcasts a message to all other robots.
+        read_messages(): Reads and processes all messages in the robot's message queue.
+        find_best_task(): Finds the best task for the robot to work on.
+        find_charging_stations(): Finds all charging stations around the robot.
+    """
     def __init__(
             self, unique_id: int, model: Model, storage: List[Tuple[int, int]], speed: int = 1,
             weight_capacity: int = 10, charging_rate: int = 15) -> None:
@@ -354,6 +402,21 @@ class Robot(Agent):
 
 
 class ConveyorBelt(Agent):
+    """
+    A class representing a conveyor belt in a warehouse automation system.
+
+    Attributes:
+    -----------
+    unique_id : int
+        A unique identifier for the conveyor belt.
+    model : Model
+        The model that the conveyor belt belongs to.
+    direction : Dir
+        The direction that the conveyor belt moves in.
+    next_pos : tuple
+        The next position that the conveyor belt moves the objects to.
+    """
+
     def __init__(self, unique_id: int, model: Model, direction: Dir) -> None:
         super().__init__(unique_id, model)
         
@@ -381,6 +444,27 @@ class ConveyorBelt(Agent):
 
 
 class Spawner(Agent):
+    """
+    A class representing a spawner agent that generates new items or pallets.
+
+    Attributes:
+    -----------
+    unique_id : int
+        A unique identifier for the agent.
+    model : Model
+        A reference to the model instance the agent belongs to.
+    products : List[Product]
+        A list of products that the spawner can generate.
+    spawns_items : bool
+        A flag indicating whether the spawner generates items or pallets.
+    queue : List[Product]
+        A queue of products waiting to be spawned.
+    spawn_rate : int
+        The rate at which the spawner generates new products.
+    last_spawn : int
+        The number of steps since the last product was spawned.
+    """
+
     def __init__(self, unique_id: int, model: Model, products: List[Product] = None, spawns_items: bool = False) -> None:
         super().__init__(unique_id, model)
 
@@ -409,7 +493,6 @@ class Spawner(Agent):
                 if isinstance(product, Union[Item, Pallet])] > 0 or not self.queue:
             return
         
-        self.last_spawn = 0
         product = self.queue.pop(0)
         new_object = None
 
@@ -425,6 +508,23 @@ class Spawner(Agent):
 
 
 class Despawner(Agent):
+    """
+    A class representing an agent that removes pallets from the warehouse grid.
+
+    Attributes:
+    -----------
+    unique_id : int
+        A unique identifier for the agent.
+    model : Model
+        A reference to the model instance the agent belongs to.
+    queue : List[Product]
+        A list of products that the agent is waiting to despawn.
+    request_rate : int
+        The number of steps between each request for a new product to despawn.
+    last_request : int
+        The number of steps since the agent last requested a new product to despawn.
+    """
+
     def __init__(self, unique_id: int, model: Model) -> None:
         super().__init__(unique_id, model)
 
@@ -453,6 +553,29 @@ class Despawner(Agent):
 
 
 class Palletizer(Agent):
+    """
+    An agent that palletizes items.
+
+    Attributes:
+    -----------
+    unique_id : int
+        Unique identifier for the agent.
+    model : Model
+        The model that the agent belongs to.
+    items_to_palletize : int
+        The number of items to palletize before creating a new pallet.
+    speed : int
+        The operating speed.
+    direction : Dir
+        The direction that the agent puts the pallets in.
+    input_pos : tuple
+        The position where the agent receives items.
+    output_pos : tuple
+        The position where the agent places pallets.
+    quantities : Dict[Product, int]
+        A dictionary that stores the quantity of each product that the agent has received.
+    """
+
     def __init__(self, unique_id: int, model: Model, items_to_palletize: int, speed: int, direction: Dir) -> None:
         super().__init__(unique_id, model)
 
