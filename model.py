@@ -173,6 +173,8 @@ class Robot(Agent):
         self.messages = []
         self.costs = {}
 
+        self.path_cache = {}
+
     @property
     def current_task(self) -> Optional[Task]:
         return self._current_task
@@ -261,6 +263,7 @@ class Robot(Agent):
 
             self.model.grid.move_agent(self, self.next_pos)
             self.next_pos = None
+            self.path_cache = {}
 
     def send_message(self, subject: Msg, data: Any) -> None:
         self.messages.append((subject, data))
@@ -322,7 +325,8 @@ class Robot(Agent):
         if len(self.charging_stations) > 0:
             paths = self.find_paths(
                 [station.pos for station in self.charging_stations])
-            return paths[min(paths, key=len)]
+            charging_station_pos = min(paths, key=lambda pos: len(paths[pos]))
+            return paths[charging_station_pos]
         return None
 
     @staticmethod
@@ -336,7 +340,8 @@ class Robot(Agent):
         Calculates the shortest path from the current position to the indicated
         position. Returns a list of positions representing the path.
         """
-
+        if self.path_cache != {}:
+            return self.path_cache
         if len(positions) == 0:
             return {}
 
@@ -350,7 +355,7 @@ class Robot(Agent):
         non_visited_positions.append(self.pos)
 
         non_obstacle_positions = non_visited_positions.copy()
-        positions_copy = positions.copy()
+        # positions_copy = positions.copy()
         costs = {pos: np.inf for pos in non_visited_positions}
         costs[self.pos] = 0
         current_pos = self.pos
@@ -367,11 +372,6 @@ class Robot(Agent):
 
             non_visited_positions.remove(current_pos)
 
-            if current_pos in positions_copy:
-                positions_copy.remove(current_pos)
-
-                if len(positions_copy) == 0:
-                    break
             current_pos = self.lowest_cost_tile(non_visited_positions, costs)
             if current_pos is None:
                 break
@@ -396,21 +396,21 @@ class Robot(Agent):
         return paths
 
     def find_path(self, position) -> List[Tuple[int, int]]:
+        if self.path_cache != {}:
+            return self.path_cache[position]
+            
         return self.find_paths([position])[position]
 
     def find_closest_pallet(self, product) -> [Tuple[int, int]]:
-        paths = self.find_paths(
-            [pallet.pos for pallet in self.available_pallets if pallet.product == product])
-        path = min(paths, key=len)
-        pallet = next((
-            agent for agent in self.model.grid.get_cell_list_contents([path[-1]])
-            if isinstance(agent, Pallet)))
-        return path, pallet
+        paths = {pallet: self.find_path(pallet.pos) for pallet in self.available_pallets if pallet.product == product}
+        pallet = min(paths, key=lambda pallet: len(paths[pallet]))
+        return paths[pallet], pallet
 
     def find_closest_storage(self) -> [Tuple[int, int]]:
         paths = self.find_paths(self.available_storage)
 
-        return paths[min(paths, key=len)]
+        storage_pos = min(paths, key=lambda pos: len(paths[pos]))
+        return paths[storage_pos]
 
     def load_pallet(self) -> None:
         pallets = self.model.grid.get_cell_list_contents([self.pos])
