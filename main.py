@@ -14,7 +14,7 @@ Autores
 - Alexa Jimena Ramírez Ortiz
 """
 
-from model import *
+from model import Warehouse
 
 STEPS = 1000
 
@@ -30,4 +30,5 @@ if __name__ == "__main__":
     m = Warehouse(WIDTH, HEIGHT, NUM_ROBOTS, NUM_SPAWNERS, NUM_DESPAWNERS)
 
     for i in range(STEPS):
+        print(f"\n-----Step {i}-----\n")
         m.step()
