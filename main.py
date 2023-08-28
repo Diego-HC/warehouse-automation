@@ -31,5 +31,3 @@ if __name__ == "__main__":
 
     for i in range(STEPS):
         m.step()
-        # print(m)
-        # print()
