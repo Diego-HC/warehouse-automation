@@ -14,20 +14,9 @@ Autores
 - Alexa Jimena Ramírez Ortiz
 """
 
-from model import *
 
-STEPS = 1000
-
-WIDTH = 15
-HEIGHT = 15
-
-NUM_ROBOTS = 3
-NUM_SPAWNERS = 3
-NUM_DESPAWNERS = 3
+from api import app
 
 
 if __name__ == "__main__":
-    m = Warehouse(WIDTH, HEIGHT, NUM_ROBOTS, NUM_SPAWNERS, NUM_DESPAWNERS)
-
-    for i in range(STEPS):
-        m.step()
+    app.run(debug=True, port=8000)

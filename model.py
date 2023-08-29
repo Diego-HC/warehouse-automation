@@ -667,9 +667,9 @@ class Warehouse(Model):
         self.storage = []
         self.charging_stations = []
 
-        self.robots: [Robot] = []
-        self.pallets: [Pallet] = []
-        self.tasks: [Task] = []
+        self.robots: List[Robot] = []
+        self.pallets: List[Pallet] = []
+        self.tasks: List[Task] = []
 
         self.datacollector = DataCollector(
             model_reporters={
