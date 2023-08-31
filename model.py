@@ -224,7 +224,9 @@ class Robot(Agent):
             self.print_robot_data("Battery depleted")
             return
 
-        self.print_robot_data(f"{self.pos}, {self.state}, {self.available_storage}, {self.available_pallets}")
+        self.print_robot_data(
+            f"{self.pos}, {self.state}, {self.available_storage}, {self.available_pallets}"
+        )
         self.read_messages()
         self.find_charging_stations()
 
@@ -852,11 +854,15 @@ class Warehouse(Model):
         self.width = width
         self.height = height
         self.num_robots = num_robots
-        self.num_pallets = num_spawners
-        self.num_tasks = num_despawners
+        self.num_spawners = num_spawners
+        self.num_despawners = num_despawners
 
         self.grid = MultiGrid(width, height, torus=False)
         self.schedule = SimultaneousActivation(self)
+        self.open_spaces = []
+        for x in range(self.width):
+            for y in range(self.height):
+                self.open_spaces.append((x, y))
 
         self.storage = []
         self.charging_stations = []
@@ -892,6 +898,11 @@ class Warehouse(Model):
         # self.generate_warehouse()
         self.generate_static_warehouse()
 
+    def filter_grid(self) -> None:
+        for agents, pos in self.grid.coord_iter():
+            if agents or pos in self.storage:
+                self.open_spaces.remove(pos)
+
     def generate_static_warehouse(self) -> None:
         # Create storage in specific locations
         self.storage = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
@@ -902,38 +913,6 @@ class Warehouse(Model):
         self.grid.place_agent(c, (10, 10))
         self.charging_stations.append(c)
 
-        # Create robots in specific locations
-        self.robots = []
-        r = Robot(
-            self.next_id(),
-            self,
-            self.storage.copy(),
-            charging_stations=self.charging_stations,
-        )
-        self.robots.append(r)
-        self.schedule.add(r)
-        self.grid.place_agent(r, (10, 1))
-
-        r = Robot(
-            self.next_id(),
-            self,
-            self.storage.copy(),
-            charging_stations=self.charging_stations,
-        )
-        self.robots.append(r)
-        self.schedule.add(r)
-        self.grid.place_agent(r, (10, 2))
-
-        r = Robot(
-            self.next_id(),
-            self,
-            self.storage.copy(),
-            charging_stations=self.charging_stations,
-        )
-        self.robots.append(r)
-        self.schedule.add(r)
-        self.grid.place_agent(r, (10, 3))
-
         # Create spawners in specific locations
         s = Spawner(self.next_id(), self, [Product.WATER])
         self.schedule.add(s)
@@ -943,6 +922,22 @@ class Warehouse(Model):
         d = Despawner(self.next_id(), self, [Product.WATER])
         self.schedule.add(d)
         self.grid.place_agent(d, (2, 10))
+
+        # Create robots in specific locations
+        self.robots = []
+        for _ in range(self.num_robots):
+            r = Robot(
+                self.next_id(),
+                self,
+                self.storage.copy(),
+                charging_stations=self.charging_stations,
+            )
+            self.robots.append(r)
+            self.schedule.add(r)
+            
+            idx = np.random.randint(0, len(self.open_spaces))
+            self.grid.place_agent(r, self.open_spaces[idx])
+            self.open_spaces.pop(idx)
 
     def generate_warehouse(self) -> None:
         # Create storage
@@ -959,12 +954,6 @@ class Warehouse(Model):
             self.robots.append(robot)
             self.schedule.add(robot)
             # self.grid.place_agent(robot, (1, 1))
-
-        # # Create pallets
-        # for _ in range(self.num_pallets):
-        #     pallet = Pallet(self.next_id(), self, np.random.choice(self.items).product)
-        #     self.pallets.append(pallet)
-        #     self.schedule.add(pallet)
 
     def step(self) -> None:
         self.datacollector.collect(self)
@@ -995,3 +984,39 @@ class Warehouse(Model):
                 print(f"-----Error, multiple pallets on {pos}-----")
 
         return pallets
+
+if __name__ == "__main__":
+    STEPS = 1000
+
+    WIDTH = 15
+    HEIGHT = 15
+
+    NUM_ROBOTS = 3
+    NUM_SPAWNERS = 3
+    NUM_DESPAWNERS = 3
+
+    def batch_run(iterations: int, steps: int):
+        for _ in range(iterations):
+            w = Warehouse(WIDTH, HEIGHT, NUM_ROBOTS, NUM_SPAWNERS, NUM_DESPAWNERS)
+
+            for _ in range(steps):
+                w.step()
+
+    if __name__ == "__main__":
+        # batch_run(100, 100)
+        
+        m = Warehouse(WIDTH, HEIGHT, NUM_ROBOTS, NUM_SPAWNERS, NUM_DESPAWNERS)
+        pallets = []
+        tasks = []
+
+        for i in range(STEPS):
+            print(f"\n-----Step {i}-----\n")
+            print(f"Pallets: {pallets}")
+            print(f"Tasks: {tasks}\n")
+            m.step()
+
+            pallets = m.get_pallets()
+            for agent in m.schedule.agents:
+                if isinstance(agent, Robot):
+                    tasks = agent.tasks
+                    break
