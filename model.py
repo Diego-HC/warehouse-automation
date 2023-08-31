@@ -20,6 +20,8 @@ class Msg(IntEnum):
     NEW_PALLET = 2
     TOOK_PALLET = 3
     CHARGING_STATION = 4
+    AVAILABLE_STORAGE = 5
+    UNAVAILABLE_STORAGE = 6
 
 
 class RS(IntEnum):
@@ -122,14 +124,16 @@ class Task:
         product: Product,
         start: Optional[Tuple[int, int]] = None,
         destination: Optional[Tuple[int, int]] = None,
+        id: Optional[str] = "",
     ) -> None:
         self.product = product
         self.start = start
         self.destination: Optional[Tuple[int, int]] = destination
         self.robot: Optional[Robot] = None
+        self.id = id
 
     def __repr__(self) -> str:
-        return f"<Task product={self.product}, start={self.start}, destination={self.destination}> robot={self.robot}, id={id(self)}"
+        return f"<Task product={self.product}, start={self.start}, destination={self.destination}> robot={self.robot}, id={self.id}"
 
 
 class Robot(Agent):
@@ -189,6 +193,7 @@ class Robot(Agent):
         self.tasks: List[Task] = []
         self._current_task: Optional[Task] = None
         self.path = []
+        self.next_path = []
         self.pallets: List[Pallet] = []
         self.available_pallets: List[Pallet] = []
         self.available_storage: List[Tuple[int, int]] = storage
@@ -201,6 +206,8 @@ class Robot(Agent):
         self.costs = {}
 
         self.path_cache = {}
+
+        print(f"{id(self.available_storage)}")
 
     @property
     def current_task(self) -> Optional[Task]:
@@ -216,6 +223,8 @@ class Robot(Agent):
         if self.battery <= 0:
             return
 
+        # print(f"robot {self.unique_id} -> {self.available_storage}")
+        self.print_robot_data(f"{self.available_storage}, {self.available_pallets}")
         self.read_messages()
         self.find_charging_stations()
 
@@ -224,7 +233,7 @@ class Robot(Agent):
         if self.state == RS.MOVING_TO_STATION:
             if not self.path:
                 self.state = RS.CHARGING
-                return 
+                return
 
         elif (
             charging_station_path is not None
@@ -252,18 +261,29 @@ class Robot(Agent):
                         [self.current_task.start]
                     )[0]
                     pallet.robot = self
+
+                    temp_pos = self.pos
+                    self.pos = self.current_task.start
+                    self.next_path = self.find_closest_storage()
+                    self.pos = temp_pos
+                    self.broadcast_message(Msg.UNAVAILABLE_STORAGE, self.next_path[0])
             else:
                 return
 
         elif self.state == RS.MOVING_TO_PALLET:
             if not self.path:
                 self.load_pallet()
+
                 self.state = RS.MOVING_TO_DESTINATION
                 if self.current_task.destination is None:
                     # Find the closest storage space
-                    self.path = self.find_closest_storage()
+                    # self.path = self.find_closest_storage()
+                    # self.broadcast_message(Msg.UNAVAILABLE_STORAGE, self.path[0])
+                    self.path = self.next_path
+                    self.next_path = []
                 else:
                     self.path = self.find_path(self.current_task.destination)
+                    self.broadcast_message(Msg.AVAILABLE_STORAGE, self.pos)
 
         elif self.state == RS.MOVING_TO_DESTINATION:
             if not self.path:
@@ -272,7 +292,6 @@ class Robot(Agent):
 
                 if self.current_task.destination is None:
                     print(f"Robot {self.unique_id} unloading pallet")
-                    self.available_pallets.append(self.pallets[-1])
                     self.broadcast_message(Msg.NEW_PALLET, self.pallets[-1])
 
                 self.unload_pallet()
@@ -285,8 +304,8 @@ class Robot(Agent):
                 self.state = RS.IDLE
             return
 
-        # print(self)
-        self.next_pos = self.path.pop()
+        if self.path:
+            self.next_pos = self.path.pop()
 
     def advance(self) -> None:
         if self.battery <= 0:
@@ -315,7 +334,7 @@ class Robot(Agent):
 
     def broadcast_message(self, subject: Msg, data: Any) -> None:
         for robot in self.model.schedule.agents:
-            if robot != self and isinstance(robot, Robot):
+            if isinstance(robot, Robot):
                 robot.send_message(subject, data)
 
     def read_messages(self) -> None:
@@ -326,26 +345,64 @@ class Robot(Agent):
                 and message[1] not in self.charging_stations
             ):
                 self.charging_stations.append(message[1])
+
             elif message[0] == Msg.NEW_TASK:
                 self.tasks.append(message[1])
+
             elif message[0] == Msg.NEW_PALLET:
+                print(
+                    f"Robot {self.unique_id} adding pallet {message[1]} to available pallets list ({self.available_storage})"
+                )
                 self.available_pallets.append(message[1])
             elif message[0] == Msg.TOOK_PALLET:
+                print(
+                    f"Robot {self.unique_id} removing pallet {message[1]} from available pallets list ({self.available_storage})"
+                )
                 self.available_pallets.remove(message[1])
 
+            elif message[0] == Msg.AVAILABLE_STORAGE:
+                self.print_robot_data(
+                    f"Adding {message[1]} to available storage {self.available_storage}"
+                )
+                self.available_storage.append(message[1])
+            elif message[0] == Msg.UNAVAILABLE_STORAGE:
+                self.print_robot_data(
+                    f"Removing {message[1]} from available storage {self.available_storage}"
+                )
+                self.available_storage.remove(message[1])
+
+    def filter_tasks(self) -> None:
+        self.tasks = [task for task in self.tasks if task.robot is None]
+
+    def has_available_pallet(self, product: Product):
+        return (
+            True
+            if [
+                pallet for pallet in self.available_pallets if pallet.product == product
+            ]
+            else False
+        )
+
     def find_best_task(self) -> None:
+        self.filter_tasks()
+
         if len(self.tasks) > 0:
             # Find the closest task
-            paths_storage = {
-                task: self.find_path(task.start)
-                for task in self.tasks
-                if task.start is not None and task.robot is None
-            }
+            if self.available_storage:
+                paths_storage = {
+                    task: self.find_path(task.start)
+                    for task in self.tasks
+                    if task.start is not None  # and task.robot is None
+                }
+            else:
+                self.print_robot_data(f"Skipping storage tasks")
+                paths_storage = {}
 
             paths_dropoff = {
                 task: self.find_path(task.destination)
                 for task in self.tasks
-                if task.destination is not None and task.robot is None
+                if task.destination is not None
+                and self.has_available_pallet(task.product)  # and task.robot is None
             }
 
             if len(paths_storage) == 0 and len(paths_dropoff) == 0:
@@ -389,11 +446,73 @@ class Robot(Agent):
             return paths[charging_station_pos]
         return None
 
+    def find_path(self, position) -> List[Tuple[int, int]]:
+        if self.path_cache != {}:
+            return self.path_cache[position]
+
+        return self.find_paths([position])[position]
+
+    def find_closest_pallet(self, product) -> Tuple[List[Tuple[int, int]], Pallet]:
+        paths = {
+            pallet: self.find_path(pallet.pos)
+            for pallet in self.available_pallets
+            if pallet.product == product and pallet.robot is None
+        }
+        pallet = min(paths, key=lambda pallet: len(paths[pallet]))
+        return paths[pallet], pallet
+
+    def find_closest_storage(self) -> List[Tuple[int, int]]:
+        paths = self.find_paths(self.available_storage)
+
+        storage_pos = min(paths, key=lambda pos: len(paths[pos]))
+        return paths[storage_pos]
+
+    def load_pallet(self) -> None:
+        pallets = self.model.grid.get_cell_list_contents([self.pos])
+        for pallet in pallets:
+            if isinstance(pallet, Pallet) and not pallet.in_robot:
+                print(
+                    f"Robot {self.unique_id} loaded pallet {pallet.unique_id} at {self.pos}"
+                )
+                self.pallets.append(pallet)
+                pallet.in_robot = True
+                break
+        else:
+            print(f"Robot {self.unique_id} could not load pallet")
+
+    def unload_pallet(self) -> None:
+        pallet = self.pallets.pop()
+        print(
+            f"Robot {self.unique_id} unloaded pallet {pallet.unique_id} at {self.pos}"
+        )
+        pallet.in_robot = False
+        pallet.robot = None
+
+    def recharge(self) -> None:
+        self.battery = min(100, self.battery + self.charging_rate)
+
+    def __repr__(self) -> str:
+        return f"<Robot id={self.unique_id}, state={self.state}, battery={self.battery}, pos={self.pos}>"
+
+    def print_robot_data(self, data: str) -> None:
+        print(f"Robot {self.unique_id} -> {data}")
+
     @staticmethod
     def lowest_cost_tile(non_visited_positions, costs) -> Optional[Tuple[int, int]]:
         if not non_visited_positions:
             return None
         return min(non_visited_positions, key=lambda position: costs[position])
+
+    @staticmethod
+    def is_obstacle(agent) -> bool:
+        if isinstance(agent, Pallet):
+            return True
+        if isinstance(agent, ChargingStation):
+            return True
+        if isinstance(agent, Robot):
+            return True
+
+        return False
 
     def find_paths(self, positions) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
         """
@@ -401,18 +520,16 @@ class Robot(Agent):
         position. Returns a list of positions representing the path.
         """
         if self.path_cache != {}:
+            print("Using cache")
             return self.path_cache
         if len(positions) == 0:
             return {}
-
-        # noinspection PyPep8Naming
-        Obstacle = Union[Pallet, ChargingStation, Robot]
 
         # Djisktra in python
         non_visited_positions = [
             pos
             for agent, pos in self.model.grid.coord_iter()
-            if not isinstance(agent, Obstacle)
+            if not self.is_obstacle(agent)
             and pos not in self.available_storage
             or pos in positions
         ]
@@ -465,49 +582,6 @@ class Robot(Agent):
 
         return paths
 
-    def find_path(self, position) -> List[Tuple[int, int]]:
-        if self.path_cache != {}:
-            return self.path_cache[position]
-
-        return self.find_paths([position])[position]
-
-    def find_closest_pallet(self, product) -> Tuple[List[Tuple[int, int]], Pallet]:
-        paths = {
-            pallet: self.find_path(pallet.pos)
-            for pallet in self.available_pallets
-            if pallet.product == product and pallet.robot is None
-        }
-        pallet = min(paths, key=lambda pallet: len(paths[pallet]))
-        return paths[pallet], pallet
-
-    def find_closest_storage(self) -> List[Tuple[int, int]]:
-        paths = self.find_paths(self.available_storage)
-
-        storage_pos = min(paths, key=lambda pos: len(paths[pos]))
-        return paths[storage_pos]
-
-    def load_pallet(self) -> None:
-        pallets = self.model.grid.get_cell_list_contents([self.pos])
-        for pallet in pallets:
-            if isinstance(pallet, Pallet) and not pallet.in_robot:
-                print(f"Robot {self.unique_id} loaded pallet {pallet.unique_id} at {self.pos}")
-                self.pallets.append(pallet)
-                pallet.in_robot = True
-                break
-        else:
-            print(f"Robot {self.unique_id} could not load pallet")
-
-    def unload_pallet(self) -> None:
-        pallet = self.pallets.pop()
-        print(f"Robot {self.unique_id} unloaded pallet {pallet.unique_id}")
-        pallet.in_robot = False
-
-    def recharge(self) -> None:
-        self.battery = min(100, self.battery + self.charging_rate)
-    
-    def __repr__(self) -> str:
-        return f"<Robot id={self.unique_id}, state={self.state}, battery={self.battery}, pos={self.pos}>"
-
 
 class ConveyorBelt(Agent):
     """
@@ -548,9 +622,9 @@ class ConveyorBelt(Agent):
         items = self.model.grid.get_cell_list_contents([self.pos])
         if len(items) > 0:
             item = items[0]
-            if isinstance(item, Union[Item, Pallet]):
+            if isinstance(item, Item) or isinstance(item, Pallet):
                 self.model.grid.move_agent(item, self.next_pos)
-    
+
     def __repr__(self) -> str:
         direction_name = ["Up", "Down", "Left", "Right"][self.direction]
         return f"<ConveyorBelt id={self.unique_id}, pos={self.pos} direction={direction_name}>"
@@ -582,7 +656,7 @@ class Spawner(Agent):
         self,
         unique_id: int,
         model: Warehouse,
-        products: List[Product] = None,
+        products: List[Product] = [],
         spawns_items: bool = False,
     ) -> None:
         super().__init__(unique_id, model)
@@ -596,9 +670,10 @@ class Spawner(Agent):
         self.spawns_items = spawns_items
 
         self.queue: List[Product] = []
-        self.spawn_rate = 5
+        self.spawn_rate = 2
 
         self.last_spawn = 0
+        self.task_id = 0
 
     def step(self) -> None:
         if self.last_spawn > self.spawn_rate and np.random.rand() < 0.5:
@@ -612,7 +687,7 @@ class Spawner(Agent):
         if [
             product
             for product in self.model.grid.get_cell_list_contents([self.pos])
-            if isinstance(product, Union[Item, Pallet])
+            if isinstance(product, Item) or isinstance(product, Pallet)
         ] or not self.queue:
             return
 
@@ -626,8 +701,10 @@ class Spawner(Agent):
         print(f"Spawner {self.unique_id} spawned {new_object.unique_id} at {self.pos}")
         self.model.grid.place_agent(new_object, self.pos)
         self.model.schedule.add(new_object)
+
         # Create a new task
-        self.model.create_task(product, start=self.pos)
+        self.model.create_task(product, start=self.pos, id=f"s {self.task_id}")
+        self.task_id += 1
 
 
 class Despawner(Agent):
@@ -659,6 +736,8 @@ class Despawner(Agent):
         self.request_rate = 5
         self.last_request = 0
         self.products = products
+        self.active_request = None
+        self.task_id = 0
 
     def step(self) -> None:
         if self.last_request > self.request_rate and np.random.rand() < 0.5:
@@ -674,13 +753,20 @@ class Despawner(Agent):
         pallets = [
             pallet
             for pallet in self.model.grid.get_cell_list_contents([self.pos])
-            if isinstance(pallet, Pallet) and pallet.product == self.queue[0] and not pallet.in_robot
+            if isinstance(pallet, Pallet) and not pallet.in_robot
         ]
 
-        if len(pallets) > 0 and pallets[0].product == self.queue[0]:
+        if len(pallets) > 0 and pallets[0].product == self.active_request:
             item = pallets[0]
             self.model.grid.remove_agent(item)
             self.model.schedule.remove(item)
+            self.active_request = None
+
+        if self.active_request is None:
+            self.active_request = self.queue.pop(0)
+            self.model.create_task(
+                self.active_request, destination=self.pos, id=f"d {self.task_id}"
+            )
 
 
 class Palletizer(Agent):
@@ -823,20 +909,35 @@ class Warehouse(Model):
 
         # Create robots in specific locations
         self.robots = []
-        r = Robot(self.next_id(), self, self.storage, charging_stations=self.charging_stations)
+        r = Robot(
+            self.next_id(),
+            self,
+            self.storage.copy(),
+            charging_stations=self.charging_stations,
+        )
         self.robots.append(r)
         self.schedule.add(r)
         self.grid.place_agent(r, (10, 1))
 
-        r = Robot(self.next_id(), self, self.storage, charging_stations=self.charging_stations)
-        self.robots.append(r)
-        self.schedule.add(r)
-        self.grid.place_agent(r, (10, 2))
+        # r = Robot(
+        #     self.next_id(),
+        #     self,
+        #     self.storage.copy(),
+        #     charging_stations=self.charging_stations,
+        # )
+        # self.robots.append(r)
+        # self.schedule.add(r)
+        # self.grid.place_agent(r, (10, 2))
 
-        r = Robot(self.next_id(), self, self.storage, charging_stations=self.charging_stations)
-        self.robots.append(r)
-        self.schedule.add(r)
-        self.grid.place_agent(r, (10, 3))
+        # r = Robot(
+        #     self.next_id(),
+        #     self,
+        #     self.storage.copy(),
+        #     charging_stations=self.charging_stations,
+        # )
+        # self.robots.append(r)
+        # self.schedule.add(r)
+        # self.grid.place_agent(r, (10, 3))
 
         # Create spawners in specific locations
         s = Spawner(self.next_id(), self, [Product.WATER])
@@ -847,7 +948,6 @@ class Warehouse(Model):
         d = Despawner(self.next_id(), self, [Product.WATER])
         self.schedule.add(d)
         self.grid.place_agent(d, (2, 10))
-
 
     def generate_warehouse(self) -> None:
         # Create storage
@@ -884,6 +984,14 @@ class Warehouse(Model):
         product: Product,
         start: Optional[Tuple[int, int]] = None,
         destination: Optional[Tuple[int, int]] = None,
+        id: Optional[str] = "",
     ) -> None:
-        task = Task(product, start, destination)
+        task = Task(product, start, destination, id)
         self.broadcast_message(Msg.NEW_TASK, task)
+
+    def get_pallets(self) -> List[Pallet]:
+        pallets = []
+        for agents, pos in self.grid.coord_iter():
+            pallets.extend([agent for agent in agents if isinstance(agent, Pallet)])
+
+        return pallets
