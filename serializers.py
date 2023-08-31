@@ -5,7 +5,7 @@ from model import Warehouse, Robot, Pallet
 def serialize_pallet(pallet: Pallet) -> Dict[Any, Any]:
     return {
         "unique_id": pallet.unique_id,
-        "pos": [coord for coord in pallet.pos],
+        "pos": list(pallet.pos),
         "product": ["water", "food", "medicine"][pallet.product]
     }
 
@@ -13,7 +13,7 @@ def serialize_pallet(pallet: Pallet) -> Dict[Any, Any]:
 def serialize_robot(robot: Robot) -> Dict[Any, Any]:
     return {
         "unique_id": robot.unique_id,
-        "pos": [coord for coord in robot.pos],
+        "pos": list(robot.pos),
         "speed": robot.speed,
         "pallets": [serialize_pallet(pallet) for pallet in robot.pallets]
     }
