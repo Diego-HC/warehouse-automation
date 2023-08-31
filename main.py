@@ -16,7 +16,7 @@ Autores
 
 from model import Warehouse, Robot
 
-STEPS = 100
+STEPS = 1000
 
 WIDTH = 15
 HEIGHT = 15
