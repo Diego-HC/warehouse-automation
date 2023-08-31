@@ -1,3 +1,5 @@
+from typing import Any, Callable
+from functools import wraps
 from flask import Flask, Response, request, jsonify, abort
 from model import Warehouse
 from serializers import current_frame_to_json
@@ -15,6 +17,22 @@ app = Flask("warehouse-automation")
 
 models = {}
 uuid_counter = 0
+
+
+def validate_id(func: Callable) -> Callable:
+    @wraps(func)  # flask checks the metadata of the original function, idk why
+    def wrapper(*args, **kwargs) -> Any:
+        simulation_id = kwargs.pop('simulation_id')
+        try:
+            simulation_id = int(simulation_id)
+        except ValueError:
+            abort(400, "simulation_id must be an integer!")
+        try:
+            _ = models[simulation_id]
+        except KeyError:
+            abort(404, "Simulation not found!")
+        return func(*args, simulation_id=simulation_id, **kwargs)
+    return wrapper
 
 
 @app.route("/", methods=["GET"])
@@ -63,37 +81,30 @@ def simulations() -> Response:
 
 
 @app.route("/simulation/<simulation_id>", methods=["GET", "DELETE"])
+@validate_id
 def simulation(simulation_id: int) -> Response:
     """
     GET: Returns the last frame of the simulation.
     DELETE: Deletes the simulation.
     """
     if request.method == "GET":
-        try:
-            model: Warehouse = models[int(simulation_id)]
-        except KeyError:
-            abort(404, "Simulation not found!")
+        model: Warehouse = models[simulation_id]
 
         # TODO: What happens if step has never been called in this simulation?
         return jsonify(current_frame_to_json(model))
     else:
-        try:
-            del models[int(simulation_id)]
-        except KeyError:
-            abort(404, "Simulation not found!")
+        del models[simulation_id]
         return jsonify({"message": "Simulation deleted!"})
 
 
 @app.route("/simulation/<simulation_id>/step", methods=["PUT"])
+@validate_id
 def step(simulation_id: int) -> Response:
     """
     Advances the simulation by the specified number of frames. If no number is specified, it defaults to 1.
     Returns a list of the new frames.
     """
-    try:
-        model: Warehouse = models[int(simulation_id)]
-    except KeyError:
-        abort(404, "Simulation not found!")
+    model: Warehouse = models[simulation_id]
 
     frames = 1
     if "frames" in request.args:
@@ -111,18 +122,16 @@ def step(simulation_id: int) -> Response:
 
 
 @app.route("/simulation/<simulation_id>/reset", methods=["PUT"])
+@validate_id
 def reset(simulation_id: int) -> Response:
     """
     Resets the simulation. In reality, the model object is just replaced with a new one.
     Only the robot count is kept.
     """
-    try:
-        model: Warehouse = models[int(simulation_id)]
-    except KeyError:
-        abort(404, "Simulation not found!")
+    model: Warehouse = models[simulation_id]
 
     robot_count = model.num_robots
     model = Warehouse(WIDTH, HEIGHT, robot_count, NUM_SPAWNERS, NUM_DESPAWNERS)
-    models[int(simulation_id)] = model
+    models[simulation_id] = model
 
     return jsonify({"message": "Simulation reset!"})
