@@ -130,6 +130,7 @@ Obtener un objeto que representa el último frame de la simulación solicitada.
 
 #### Errores
 
+- `405` si se usa un método diferente a GET
 - `400` si el ID de la simulación no es un entero
 - `404` si no se encontró una simulación con el ID solicitado
 
@@ -139,6 +140,7 @@ Elimina una simulación de la memoria.
 
 #### Errores
 
+- `405` si se usa un método diferente a DELETE
 - `400` si el ID de la simulación no es un entero
 - `404` si no se encontró una simulación con el ID solicitado
 
@@ -192,6 +194,7 @@ Calcula y regresa los siguientes N frames de la simulación especificada.
 
 #### Errores
 
+- `405` si se usa un método diferente a PUT
 - `400` si el ID de la simulación no es un entero
 - `404` si no se encontró una simulación con el ID solicitado
 
@@ -201,6 +204,7 @@ Reestablece una simulación a como estaba recién inicializada. Realmente solo s
 
 #### Errores
 
+- `405` si se usa un método diferente a PUT
 - `400` si el ID de la simulación no es un entero
 - `404` si no se encontró una simulación con el ID solicitado
 
