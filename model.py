@@ -49,6 +49,19 @@ class Product(IntEnum):
     MEDICINE = 2
 
 
+def calc_pos(pos: Tuple[int, int], direction: Dir):
+    x, y = pos
+    if direction == Dir.UP:
+        return (x, y + 1)
+        # return pos + (0, 1)
+    elif direction == Dir.DOWN:
+        return (x, y - 1)
+    elif direction == Dir.LEFT:
+        return (x - 1, y)
+    elif direction == Dir.RIGHT:
+        return (x + 1, y)
+
+
 class Item(Agent):
     def __init__(self, unique_id: int, model: Model, product: Product) -> None:
         super().__init__(unique_id, model)
@@ -87,6 +100,25 @@ class Pallet(Agent):
     def __repr__(self) -> str:
         product_name = ["Water", "Food", "Medicine"][self.product]
         return f"<Pallet id={self.unique_id} name={product_name}, pos={self.pos}>"
+
+
+class Storage(Agent):
+    def __init__(
+        self, unique_id: int, model: Model, open_direction: Dir, pos: Tuple[int, int]
+    ) -> None:
+        super().__init__(unique_id, model)
+        self.open_direction = open_direction
+        self.pos = pos
+        self.entry_pos = calc_pos(pos, self.open_direction)
+
+    def step(self) -> None:
+        pass
+
+    def advance(self) -> None:
+        pass
+
+    def __repr__(self) -> str:
+        return f"<Storage id={self.unique_id}, pos={self.pos}"
 
 
 class ChargingStation(Agent):
@@ -171,7 +203,7 @@ class Robot(Agent):
         self,
         unique_id: int,
         model: Warehouse,
-        storage: List[Tuple[int, int]],
+        storage: List[Storage],
         speed: int = 1,
         weight_capacity: int = 10,
         charging_rate: int = 15,
@@ -196,7 +228,8 @@ class Robot(Agent):
         self.next_path = []
         self.pallets: List[Pallet] = []
         self.available_pallets: List[Pallet] = []
-        self.available_storage: List[Tuple[int, int]] = storage
+        self.storage: List[Storage] = storage
+        self.available_storage: List[Storage] = storage
 
         self.battery = 100
         self.charging_rate = charging_rate
@@ -270,7 +303,10 @@ class Robot(Agent):
                     self.pos = self.current_task.start
                     self.next_path = self.find_closest_storage()
                     self.pos = temp_pos
-                    self.broadcast_message(Msg.UNAVAILABLE_STORAGE, self.next_path[0])
+                    self.print_robot_data(f"{self.next_path}")
+                    self.broadcast_message(
+                        Msg.UNAVAILABLE_STORAGE, self.get_storage(self.next_path[0])
+                    )
             else:
                 return
 
@@ -284,7 +320,9 @@ class Robot(Agent):
                     self.next_path = []
                 else:
                     self.path = self.find_path(self.current_task.destination)
-                    self.broadcast_message(Msg.AVAILABLE_STORAGE, self.pos)
+                    self.broadcast_message(
+                        Msg.AVAILABLE_STORAGE, self.get_storage(self.pos)
+                    )
 
         elif self.state == RS.MOVING_TO_DESTINATION:
             if not self.path:
@@ -371,6 +409,11 @@ class Robot(Agent):
                     f"Removing {message[1]} from available storage {self.available_storage}"
                 )
                 self.available_storage.remove(message[1])
+
+    def get_storage(self, pos: Tuple[int, int]) -> Storage:
+        for storage in self.storage:
+            if storage.pos == pos:
+                return storage
 
     def filter_tasks(self) -> None:
         self.tasks = [task for task in self.tasks if task.robot is None]
@@ -463,10 +506,26 @@ class Robot(Agent):
         return paths[pallet], pallet
 
     def find_closest_storage(self) -> List[Tuple[int, int]]:
-        paths = self.find_paths(self.available_storage)
+        storage_destinations = []
+        for storage in self.available_storage:
+            storage_destinations.append(storage.entry_pos)
+
+        paths = self.find_paths(storage_destinations)
 
         storage_pos = min(paths, key=lambda pos: len(paths[pos]))
-        return paths[storage_pos]
+
+        path = paths[storage_pos]
+        path.insert(
+            0,
+            [
+                storage.pos
+                for storage in self.available_storage
+                if storage_pos
+                in self.model.grid.get_neighborhood(storage.pos, moore=False)
+            ][0],
+        )
+
+        return path
 
     def load_pallet(self) -> None:
         pallets = self.model.grid.get_cell_list_contents([self.pos])
@@ -511,11 +570,24 @@ class Robot(Agent):
 
         return False
 
+    def is_storage(self, pos: Tuple[int, int]) -> bool:
+        for storage in self.available_storage:
+            print(storage)
+            if storage.pos == pos:
+                return True
+
+        for pallet in self.available_pallets:
+            if pallet.pos == pos:
+                return True
+
     def find_paths(self, positions) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
         """
         Calculates the shortest path from the current position to the indicated
         position. Returns a list of positions representing the path.
         """
+
+        # TODO: Update function to account for storage, since robots can only enter from one direction
+
         if self.path_cache != {}:
             print("Using cache")
             return self.path_cache
@@ -527,7 +599,7 @@ class Robot(Agent):
             pos
             for agent, pos in self.model.grid.coord_iter()
             if not self.is_obstacle(agent)
-            and pos not in self.available_storage
+            and not self.is_storage(pos)
             or pos in positions
         ]
         non_visited_positions.append(self.pos)
@@ -864,8 +936,8 @@ class Warehouse(Model):
             for y in range(self.height):
                 self.open_spaces.append((x, y))
 
-        self.storage = []
-        self.charging_stations = []
+        self.storage: List[Storage] = []
+        self.charging_stations: List[ChargingStation] = []
 
         self.robots: List[Robot] = []
         self.pallets: List[Pallet] = []
@@ -905,7 +977,12 @@ class Warehouse(Model):
 
     def generate_static_warehouse(self) -> None:
         # Create storage in specific locations
-        self.storage = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
+        self.storage_positions = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
+        for pos in self.storage_positions:
+            s = Storage(self.next_id(), self, Dir.RIGHT, pos)
+            self.schedule.add(s)
+            self.grid.place_agent(s, pos)
+            self.storage.append(s)
 
         # Create charging stations in specific locations
         c = ChargingStation(self.next_id(), self)
@@ -934,7 +1011,7 @@ class Warehouse(Model):
             )
             self.robots.append(r)
             self.schedule.add(r)
-            
+
             idx = np.random.randint(0, len(self.open_spaces))
             self.grid.place_agent(r, self.open_spaces[idx])
             self.open_spaces.pop(idx)
@@ -985,6 +1062,7 @@ class Warehouse(Model):
 
         return pallets
 
+
 if __name__ == "__main__":
     STEPS = 1000
 
@@ -1004,7 +1082,7 @@ if __name__ == "__main__":
 
     if __name__ == "__main__":
         # batch_run(100, 100)
-        
+
         m = Warehouse(WIDTH, HEIGHT, NUM_ROBOTS, NUM_SPAWNERS, NUM_DESPAWNERS)
         pallets = []
         tasks = []
