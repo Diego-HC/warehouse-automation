@@ -24,6 +24,7 @@ class RS(IntEnum):
     MOVING_TO_DESTINATION = 2
     MOVING_TO_STATION = 3
     CHARGING = 4
+    MOVING_TO_ENTRY_POINT = 5
 
 
 class Dir(IntEnum):

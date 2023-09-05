@@ -2,7 +2,7 @@ from typing import Any, Callable
 from functools import wraps
 from flask import Flask, Response, request, jsonify, abort
 from model import Warehouse
-from serializers import current_frame_to_json
+from serializers import map_to_json, current_frame_to_json
 
 
 WIDTH = 15
@@ -71,7 +71,8 @@ def simulations() -> Response:
                 "robot_count": robot_count,
                 "spawners": NUM_SPAWNERS,
                 "despawners": NUM_DESPAWNERS
-            }
+            },
+            "agents": map_to_json(model)
         })
     else:
         resp = []

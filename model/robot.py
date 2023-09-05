@@ -105,10 +105,9 @@ class Robot(Agent):
 
         charging_station_path = self.find_closest_charging_station()
 
-        if self.state == RS.MOVING_TO_STATION:
-            if not self.path:
-                self.state = RS.CHARGING
-                return
+        if self.state == RS.MOVING_TO_STATION and not self.path:
+            self.state = RS.CHARGING
+            return
 
         elif (
             charging_station_path is not None
@@ -148,31 +147,44 @@ class Robot(Agent):
             else:
                 return
 
-        elif self.state == RS.MOVING_TO_PALLET:
-            if not self.path:
+        elif self.state == RS.MOVING_TO_PALLET and not self.path:
+            if self.get_storage(self.pos) is not None:
+                # The robot arrived at a storage agent
                 self.load_pallet()
-
+                self.next_pos = self.get_storage(self.pos).entry_pos
+                self.state = RS.MOVING_TO_ENTRY_POINT
+                self.get_storage(self.pos).is_available = True
+                return
+            else:
+                # The robot arrived at a spawner agent
+                self.load_pallet()
                 self.state = RS.MOVING_TO_DESTINATION
                 if self.current_task.destination is None:
                     self.path = self.next_path
                     self.next_path = []
                 else:
                     self.path = self.find_path(self.current_task.destination)
-                    self.get_storage(self.pos).is_available = True
 
-        elif self.state == RS.MOVING_TO_DESTINATION:
-            if not self.path:
-                self.state = RS.IDLE
-                self.path = []
+        elif self.state == RS.MOVING_TO_ENTRY_POINT:
+            self.state = RS.MOVING_TO_DESTINATION
+            self.path = self.find_path(self.current_task.destination)
 
-                if self.current_task.destination is None:
-                    self.print_robot_data(f"unloading pallet")
-                    self.broadcast_message(Msg.NEW_PALLET, self.pallets[-1])
+        elif self.state == RS.MOVING_TO_DESTINATION and not self.path:
+            self.state = RS.IDLE
+            self.path = []
 
+            if self.current_task.destination is None:
+                self.print_robot_data(f"unloading pallet")
+                self.broadcast_message(Msg.NEW_PALLET, self.pallets[-1])
                 self.unload_pallet()
-
+                self.next_pos = self.get_storage(self.pos).entry_pos
                 self.current_task = None
                 return
+
+            self.unload_pallet()
+
+            self.current_task = None
+            return
 
         elif self.state == RS.CHARGING:
             if self.battery >= 90:
@@ -380,13 +392,13 @@ class Robot(Agent):
         return min(non_visited_positions, key=lambda position: costs[position])
 
     @staticmethod
-    def is_obstacle(agent: Agent) -> bool:
-        return any([
+    def is_obstacle(agents: List[Agent]) -> bool:
+        return any([any([
             isinstance(agent, Storage),
             isinstance(agent, ChargingStation),
-            isinstance(agent, Robot),
+            # isinstance(agent, Robot),
             isinstance(agent, Storage),
-        ])
+        ]) for agent in agents])
 
     # def is_storage(self, pos: Tuple[int, int]) -> bool:
     #     for storage in self.available_storage:
@@ -415,8 +427,8 @@ class Robot(Agent):
         # Djisktra in python
         non_visited_positions = [
             pos
-            for agent, pos in self.model.grid.coord_iter()
-            if not self.is_obstacle(agent)
+            for agents, pos in self.model.grid.coord_iter()
+            if not self.is_obstacle(agents)
             # and not self.is_storage(pos)
             or pos in positions
         ]

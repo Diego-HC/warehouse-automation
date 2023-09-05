@@ -56,9 +56,9 @@ class Storage(Agent):
         self, unique_id: int, model: Model, open_direction: Dir, pos: Tuple[int, int]
     ) -> None:
         super().__init__(unique_id, model)
-        self.open_direction = open_direction
+        self.direction = open_direction
         self.pos = pos
-        self.entry_pos = calc_pos(pos, self.open_direction)
+        self.entry_pos = calc_pos(pos, self.direction)
         self.is_available = True
 
     def step(self) -> None:
