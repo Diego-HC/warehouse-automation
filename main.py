@@ -16,7 +16,14 @@ Autores
 
 
 from api import app
+from model.visualization import server
+
+
+TEST_VISUALIZATION = True
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+    if TEST_VISUALIZATION:
+        server.launch()
+    else:
+        app.run(debug=True, port=8000)
