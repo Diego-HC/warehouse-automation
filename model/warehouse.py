@@ -27,11 +27,11 @@ STATION_POSITIONS = [
 ]
 
 SPAWNER_POSITIONS = [
-    (3, 5), (3, 7), (3, 9)
+    (0, 4), (0, 7), (0, 10)
 ]
 
 DESPAWNER_POSITIONS = [
-    (1, 5), (1, 7), (1, 9)
+    (0, 5), (0, 8), (0, 11)
 ]
 
 CONVEYOR_BELT_POSITIONS = [

@@ -19,7 +19,7 @@ from api import app
 from model.visualization import server
 
 
-TEST_VISUALIZATION = True
+TEST_VISUALIZATION = False
 
 
 if __name__ == "__main__":
