@@ -49,7 +49,7 @@ def map_to_json(model: Warehouse) -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 details[key] = [serialize_generic_agent(agent)]
 
     for key in details:
-        counts[key] = len(details[key])
+        counts[key + "_count"] = len(details[key])
     return counts, details
 
 

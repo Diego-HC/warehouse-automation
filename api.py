@@ -69,8 +69,7 @@ def simulations() -> Response:
             "id": uuid_counter,
             "parameters": {
                 "width": WIDTH,
-                "height": HEIGHT,
-                "robot_count": robot_count
+                "height": HEIGHT
             },
             "agents": details
         }

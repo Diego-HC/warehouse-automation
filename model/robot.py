@@ -330,8 +330,11 @@ class Robot(Agent):
             )
             and self.get_storage(self.path[0]) is not None
         ):
-            temp_path = self.find_path(self.path[1], obstacles)
-            temp_path.insert(0, self.path[0])
+            try:
+                temp_path = self.find_path(self.path[1], obstacles)
+                temp_path.insert(0, self.path[0])
+            except IndexError:
+                temp_path = self.find_path(self.path[0], obstacles)
             self.path = temp_path
         else:
             self.path = self.find_path(self.path[0], obstacles)
