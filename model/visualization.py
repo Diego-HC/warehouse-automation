@@ -32,8 +32,10 @@ def portrayal(agent: Agent) -> Dict[str, Any]:
         return {"Shape": "rect", "Filled": "true", "Color": "green", "Layer": 0,
                 "w": 0.9, "h": 0.9}
     if isinstance(agent, Spawner):
-        return {"Shape": "rect", "Filled": "true", "Color": "blue", "Layer": 0,
-                "w": 0.9, "h": 0.9}
+        return {"Shape": "circle", "Filled": "false", "Color": "blue", "Layer": 1, "r": 0.9}
+        # return {"Shape": "rect", "Filled": "true", "Color": "blue", "Layer": 0,
+                # "w": 0.9, "h": 0.9}
+
     if isinstance(agent, Despawner):
         return {"Shape": "rect", "Filled": "true", "Color": "red", "Layer": 0,
                 "w": 0.9, "h": 0.9}

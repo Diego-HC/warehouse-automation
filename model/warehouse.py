@@ -47,7 +47,7 @@ ITEM_SPAWNER_POSITIONS = [
 ]
 
 
-FULL_SIMULATION = False
+FULL_SIMULATION = True
 
 
 class Warehouse(Model):

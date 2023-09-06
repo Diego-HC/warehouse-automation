@@ -30,7 +30,9 @@ class ConveyorBelt(Agent):
         The next position that the conveyor belt moves the objects to.
     """
 
-    def __init__(self, unique_id: int, model: Warehouse, pos: Tuple[int, int], direction: Dir) -> None:
+    def __init__(
+        self, unique_id: int, model: Warehouse, pos: Tuple[int, int], direction: Dir
+    ) -> None:
         super().__init__(unique_id, model)
         self.model = model
 
@@ -50,9 +52,12 @@ class ConveyorBelt(Agent):
         pass
 
     def advance(self) -> None:
-        items = self.model.grid.get_cell_list_contents([self.pos])
-        if len(items) > 0:
-            item = items[0]
+        items = [
+            item
+            for item in self.model.grid.get_cell_list_contents([self.pos])
+            if isinstance(item, Item) or isinstance(item, Pallet)
+        ]
+        for item in items:
             if isinstance(item, Item) or isinstance(item, Pallet):
                 self.model.grid.move_agent(item, self.next_pos)
 
@@ -150,9 +155,10 @@ class Spawner(Agent):
         self.model.grid.place_agent(new_object, self.pos)
         self.model.schedule.add(new_object)
 
-        # Create a new task
-        self.model.create_task(product, start=self.pos, id_=f"s {self.task_id}")
-        self.task_id += 1
+        # Create a new task if the spawner is a pallet spawner
+        if not self.spawns_items:
+            self.model.create_task(product, start=self.pos, id_=f"s {self.task_id}")
+            self.task_id += 1
 
 
 class Despawner(Agent):
@@ -286,10 +292,20 @@ class Palletizer(Agent):
         except ValueError:
             return
 
-        if self.quantities[product_to_palletize] < self.items_to_palletize:
+        if self.quantities[product_to_palletize] < self.items_to_palletize or [
+            pallet
+            for pallet in self.model.grid.get_cell_list_contents([self.output_pos])
+            if isinstance(pallet, Pallet)
+        ]:
             return
 
         self.quantities[product_to_palletize] -= self.items_to_palletize
         pallet = Pallet(self.model.next_id(), self.model, product_to_palletize)
         self.model.grid.place_agent(pallet, self.output_pos)
         self.model.schedule.add(pallet)
+        self.model.create_task(
+            product_to_palletize, start=self.output_pos, id_=f"p {self.unique_id}"
+        )
+
+    def advance(self) -> None:
+        pass
