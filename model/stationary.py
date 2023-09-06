@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, TYPE_CHECKING
+from typing import Tuple, Dict, List, TYPE_CHECKING
 
 from mesa.model import Model
 from mesa.agent import Agent
@@ -30,7 +30,7 @@ class ConveyorBelt(Agent):
         The next position that the conveyor belt moves the objects to.
     """
 
-    def __init__(self, unique_id: int, model: Warehouse, direction: Dir) -> None:
+    def __init__(self, unique_id: int, model: Warehouse, pos: Tuple[int, int], direction: Dir) -> None:
         super().__init__(unique_id, model)
         self.model = model
 
@@ -38,13 +38,13 @@ class ConveyorBelt(Agent):
         self.next_pos = None
 
         if self.direction == Dir.UP:
-            self.next_pos = self.pos + (0, 1)
+            self.next_pos = (pos[0], pos[1] + 1)
         elif self.direction == Dir.DOWN:
-            self.next_pos = self.pos - (0, 1)
+            self.next_pos = (pos[0], pos[1] - 1)
         elif self.direction == Dir.LEFT:
-            self.next_pos = self.pos - (1, 0)
+            self.next_pos = (pos[0] - 1, pos[1])
         elif self.direction == Dir.RIGHT:
-            self.next_pos = self.pos + (1, 0)
+            self.next_pos = (pos[0] + 1, pos[1])
 
     def step(self) -> None:
         pass
@@ -95,6 +95,9 @@ class Spawner(Agent):
         The rate at which the spawner generates new products.
     last_spawn : int
         The number of steps since the last product was spawned.
+
+
+    espon
     """
 
     def __init__(
@@ -242,13 +245,13 @@ class Palletizer(Agent):
         self,
         unique_id: int,
         model: Warehouse,
+        pos: Tuple[int, int],
         items_to_palletize: int,
         speed: int,
         direction: Dir,
     ) -> None:
         super().__init__(unique_id, model)
         self.model = model
-
         self.items_to_palletize = items_to_palletize
         self.speed = speed
         self.direction = direction
@@ -257,17 +260,17 @@ class Palletizer(Agent):
         self.quantities: Dict[Product, int] = {}
 
         if self.direction == Dir.UP:
-            self.input_pos = self.pos + (0, 1)
-            self.output_pos = self.pos - (0, 1)
+            self.input_pos = (pos[0], pos[1] - 1)
+            self.output_pos = (pos[0], pos[1] + 1)
         elif self.direction == Dir.DOWN:
-            self.input_pos = self.pos - (0, 1)
-            self.output_pos = self.pos + (0, 1)
+            self.input_pos = (pos[0], pos[1] + 1)
+            self.output_pos = (pos[0], pos[1] - 1)
         elif self.direction == Dir.LEFT:
-            self.input_pos = self.pos - (1, 0)
-            self.output_pos = self.pos + (1, 0)
+            self.input_pos = (pos[0] + 1, pos[1])
+            self.output_pos = (pos[0] - 1, pos[1])
         elif self.direction == Dir.RIGHT:
-            self.input_pos = self.pos + (1, 0)
-            self.output_pos = self.pos - (1, 0)
+            self.input_pos = (pos[0] - 1, pos[1])
+            self.output_pos = (pos[0] + 1, pos[1])
 
     def step(self) -> None:
         for item in self.model.grid.get_cell_list_contents([self.input_pos]):
@@ -278,7 +281,11 @@ class Palletizer(Agent):
                 self.model.grid.remove_agent(item)
                 self.model.schedule.remove(item)
 
-        product_to_palletize = max(self.quantities, key=self.quantities.get)
+        try:
+            product_to_palletize = max(self.quantities, key=self.quantities.get)
+        except ValueError:
+            return
+
         if self.quantities[product_to_palletize] < self.items_to_palletize:
             return
 

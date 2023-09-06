@@ -12,10 +12,42 @@ import numpy as np
 from .enums import Dir, Product, Msg
 from .items import Pallet, Task, Storage
 from .robot import Robot
-from .stationary import ChargingStation, Spawner, Despawner
+from .stationary import ChargingStation, Spawner, Despawner, ConveyorBelt, Palletizer
+
+STORAGE_POSITIONS = [
+    (5, 3), (6, 3), (7, 3),
+    (5, 7), (6, 7), (7, 7),
+    (5, 11), (6, 11), (7, 11),
+    (9, 5), (10, 5), (11, 5),
+    (9, 9), (10, 9), (11, 9)
+]
+
+STATION_POSITIONS = [
+    (10, 2), (12, 2), (14, 2)
+]
+
+SPAWNER_POSITIONS = [
+    (3, 5), (3, 7), (3, 9)
+]
+
+DESPAWNER_POSITIONS = [
+    (1, 5), (1, 7), (1, 9)
+]
+
+CONVEYOR_BELT_POSITIONS = [
+    (12, 13), (13, 13), (14, 13)
+]
+
+PALLETIZER_POSITIONS = [
+    (11, 13)
+]
+
+ITEM_SPAWNER_POSITIONS = [
+    (14, 13)
+]
 
 
-STORAGE_POSITIONS = [(1, 1), (1, 3), (1, 5), (1, 7), (1, 9)]
+FULL_SIMULATION = False
 
 
 class Warehouse(Model):
@@ -83,31 +115,46 @@ class Warehouse(Model):
     def generate_static_warehouse(self) -> None:
         # Create storage in specific locations
         for pos in STORAGE_POSITIONS:
-            s = Storage(self.next_id(), self, Dir.RIGHT, pos)
+            s = Storage(self.next_id(), self, Dir.DOWN, pos)
             self.schedule.add(s)
             self.grid.place_agent(s, pos)
             self.storage.append(s)
 
         # Create charging stations in specific locations
-        c = ChargingStation(self.next_id(), self)
-        self.schedule.add(c)
-        self.grid.place_agent(c, (1, 13))
-        self.charging_stations.append(c)
-
-        c = ChargingStation(self.next_id(), self)
-        self.schedule.add(c)
-        self.grid.place_agent(c, (3, 13))
-        self.charging_stations.append(c)
+        for pos in STATION_POSITIONS:
+            c = ChargingStation(self.next_id(), self)
+            self.schedule.add(c)
+            self.grid.place_agent(c, pos)
+            self.charging_stations.append(c)
 
         # Create spawners in specific locations
-        s = Spawner(self.next_id(), self, [Product.WATER])
-        self.schedule.add(s)
-        self.grid.place_agent(s, (13, 10))
+        for i, pos in enumerate(SPAWNER_POSITIONS):
+            s = Spawner(self.next_id(), self, [Product.all()[i]])
+            self.schedule.add(s)
+            self.grid.place_agent(s, pos)
 
         # Create despawners in specific locations
-        d = Despawner(self.next_id(), self, [Product.WATER])
-        self.schedule.add(d)
-        self.grid.place_agent(d, (13, 4))
+        for i, pos in enumerate(DESPAWNER_POSITIONS):
+            d = Despawner(self.next_id(), self, [Product.all()[i]])
+            self.schedule.add(d)
+            self.grid.place_agent(d, pos)
+
+        if FULL_SIMULATION:
+            for pos in CONVEYOR_BELT_POSITIONS:
+                c = ConveyorBelt(self.next_id(), self, pos, Dir.LEFT)
+                self.schedule.add(c)
+                self.grid.place_agent(c, pos)
+
+            for pos in PALLETIZER_POSITIONS:
+                p = Palletizer(self.next_id(), self, pos, 4, 1, Dir.LEFT)
+                self.schedule.add(p)
+                self.grid.place_agent(p, pos)
+
+            # Create spawners in specific locations
+            for pos in ITEM_SPAWNER_POSITIONS:
+                s = Spawner(self.next_id(), self, Product.all(), spawns_items=True)
+                self.schedule.add(s)
+                self.grid.place_agent(s, pos)
 
         self.filter_grid()
 

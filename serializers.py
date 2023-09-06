@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from mesa import Agent
 from model import Warehouse, Robot, Pallet
 
@@ -33,20 +33,24 @@ def serialize_generic_agent(agent: Agent) -> Dict[str, Any]:
     return resp
 
 
-def map_to_json(model: Warehouse) -> Dict[str, Any]:
+def map_to_json(model: Warehouse) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     serialized_agents = [
         "Robot", "Storage", "Spawner", "Despawner",
         "Palletizer", "ConveyorBelt", "ChargingStation"]
-    resp = {}
+    details = {}
+    counts = {}
     for agent in model.schedule.agents:
         class_name = agent.__class__.__name__
         if class_name in serialized_agents:
             key = class_name.lower()
             try:
-                resp[key].append(serialize_generic_agent(agent))
+                details[key].append(serialize_generic_agent(agent))
             except KeyError:
-                resp[key] = [serialize_generic_agent(agent)]
-    return resp
+                details[key] = [serialize_generic_agent(agent)]
+
+    for key in details:
+        counts[key] = len(details[key])
+    return counts, details
 
 
 def current_frame_to_json(model: Warehouse) -> Dict[str, Any]:

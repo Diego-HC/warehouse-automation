@@ -504,7 +504,7 @@ class Robot(Agent):
 
         return self.find_paths([position], obstacles)[position]
 
-    def find_closest_pallet(self, product) -> Tuple[List[Tuple[int, int]], Pallet]:
+    def find_closest_pallet(self, product) -> Tuple[List[Tuple[int, int]], Optional[Pallet]]:
         if len(self.available_pallets) == 0:
             return [], None
         
@@ -513,7 +513,11 @@ class Robot(Agent):
             for pallet in self.available_pallets
             if pallet.product == product and pallet.robot is None
         }
-        pallet = min(paths, key=lambda pallet: len(paths[pallet]))
+        try:
+            pallet = min(paths, key=lambda pallet: len(paths[pallet]))
+        except ValueError:
+            return [], None
+
         return paths[pallet], pallet
 
     def has_available_storage(self) -> bool:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from typing import Tuple, List
 from enum import IntEnum
-from typing import Tuple
 
 
 class Msg(IntEnum):
@@ -43,6 +43,10 @@ class Product(IntEnum):
     WATER = 0
     FOOD = 1
     MEDICINE = 2
+
+    @staticmethod
+    def all() -> List[Product]:
+        return [Product.WATER, Product.FOOD, Product.MEDICINE]
 
 
 def calc_pos(pos: Tuple[int, int], direction: Dir):

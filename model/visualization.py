@@ -42,7 +42,7 @@ def portrayal(agent: Agent) -> Dict[str, Any]:
                 "w": 0.9, "h": 0.9}
 
 
-grid = CanvasGrid(portrayal, 15, 15, 400, 400)
+grid = CanvasGrid(portrayal, 15, 15, 800, 800)
 
 server = ModularServer(
     Warehouse,

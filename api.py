@@ -62,18 +62,20 @@ def simulations() -> Response:
         model = Warehouse(WIDTH, HEIGHT, robot_count, NUM_SPAWNERS, NUM_DESPAWNERS)
         models[uuid_counter] = model
 
-        return jsonify({
+        counts, details = map_to_json(model)
+
+        resp = {
             "message": "Simulation started!",
             "id": uuid_counter,
             "parameters": {
                 "width": WIDTH,
                 "height": HEIGHT,
-                "robot_count": robot_count,
-                "spawners": NUM_SPAWNERS,
-                "despawners": NUM_DESPAWNERS
+                "robot_count": robot_count
             },
-            "agents": map_to_json(model)
-        })
+            "agents": details
+        }
+        resp["parameters"].update(counts)
+        return jsonify(resp)
     else:
         resp = []
         for simulation_id, model in models.items():
