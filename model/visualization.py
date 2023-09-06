@@ -24,7 +24,7 @@ def portrayal(agent: Agent) -> Dict[str, Any]:
                 "w": 0.9, "h": 0.9}
     if isinstance(agent, Robot):
         return {"Shape": "circle", "Filled": "false", "Color": "Cyan", "Layer": 1, "r": 0.9,
-                "text": f"{agent.battery}", "text_color": "black"}
+                "text": f"{agent.battery}, {agent.pos}", "text_color": "black"}
     if isinstance(agent, ConveyorBelt):
         return {"Shape": "rect", "Filled": "true", "Color": "black", "Layer": 0,
                 "w": 0.9, "h": 0.9}

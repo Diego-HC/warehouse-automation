@@ -15,7 +15,7 @@ from .robot import Robot
 from .stationary import ChargingStation, Spawner, Despawner
 
 
-STORAGE_POSITIONS = [(1, 1), (1, 2), (1, 3), (1, 4), (1, 5)]
+STORAGE_POSITIONS = [(1, 1), (1, 3), (1, 5), (1, 7), (1, 9)]
 
 
 class Warehouse(Model):
@@ -77,7 +77,7 @@ class Warehouse(Model):
 
     def filter_grid(self) -> None:
         for agents, pos in self.grid.coord_iter():
-            if agents or pos in self.storage:
+            if agents:
                 self.open_spaces.remove(pos)
 
     def generate_static_warehouse(self) -> None:
@@ -91,18 +91,25 @@ class Warehouse(Model):
         # Create charging stations in specific locations
         c = ChargingStation(self.next_id(), self)
         self.schedule.add(c)
-        self.grid.place_agent(c, (10, 10))
+        self.grid.place_agent(c, (1, 13))
+        self.charging_stations.append(c)
+
+        c = ChargingStation(self.next_id(), self)
+        self.schedule.add(c)
+        self.grid.place_agent(c, (3, 13))
         self.charging_stations.append(c)
 
         # Create spawners in specific locations
         s = Spawner(self.next_id(), self, [Product.WATER])
         self.schedule.add(s)
-        self.grid.place_agent(s, (1, 10))
+        self.grid.place_agent(s, (13, 10))
 
         # Create despawners in specific locations
         d = Despawner(self.next_id(), self, [Product.WATER])
         self.schedule.add(d)
-        self.grid.place_agent(d, (2, 10))
+        self.grid.place_agent(d, (13, 4))
+
+        self.filter_grid()
 
         # Create robots in specific locations
         self.robots = []

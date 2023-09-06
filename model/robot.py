@@ -51,7 +51,7 @@ class Robot(Agent):
         speed: int = 1,
         weight_capacity: int = 10,
         charging_rate: int = 15,
-        charging_stations: List[ChargingStation] = None,
+        charging_stations: Optional[List[ChargingStation]] = None,
     ) -> None:
         """
         Hola
@@ -76,11 +76,15 @@ class Robot(Agent):
 
         self.battery = 100
         self.charging_rate = charging_rate
-        self.charging_stations: List[ChargingStation] = charging_stations if charging_stations is not None else []
+        self.charging_stations: List[ChargingStation] = (
+            charging_stations if charging_stations is not None else []
+        )
 
         self.messages = []
         self.costs = {}
         self.path_cache = {}
+
+        self.steps_to_wait = 0
 
     @property
     def current_task(self) -> Optional[Task]:
@@ -97,9 +101,20 @@ class Robot(Agent):
             self.print_robot_data("Battery depleted")
             return
 
-        self.print_robot_data(
-            f"{self.pos}, {self.state}, {self.available_pallets}"
-        )
+        if self.steps_to_wait:
+            self.steps_to_wait -= 1
+            return
+
+        if self.state == RS.WAITING_FOR_CHARGING_STATION:
+            if any(
+                isinstance(robot, Robot)
+                for robot in self.model.grid.get_cell_list_contents([self.next_pos])
+            ):
+                return
+
+            self.state = RS.MOVING_TO_STATION
+
+        self.print_robot_data(f"{self.pos}, {self.state}, {self.available_pallets}")
         self.read_messages()
         self.find_charging_stations()
 
@@ -111,7 +126,7 @@ class Robot(Agent):
 
         elif (
             charging_station_path is not None
-            and self.battery - len(charging_station_path) <= 30
+            and self.battery - len(charging_station_path) <= 50
             and self.state == RS.IDLE
         ):
             self.print_robot_data("---Moving to station---")
@@ -126,16 +141,24 @@ class Robot(Agent):
                 self.state = RS.MOVING_TO_PALLET
                 if self.current_task.start is None:
                     # Find closest pallet
-                    self.path, pallet = self.find_closest_pallet(
+                    _, pallet = self.find_closest_pallet(
                         self.current_task.product
                     )
+                    storage = self.get_storage(pallet.pos)
+                    if storage is not None:
+                        self.path = [pallet.pos] + self.find_path(storage.entry_pos)
                     pallet.robot = self
+
                     self.broadcast_message(Msg.TOOK_PALLET, pallet)
                 else:
                     self.path = self.find_path(self.current_task.start)
-                    pallet = self.model.grid.get_cell_list_contents(
-                        [self.current_task.start]
-                    )[0]
+                    pallet = [
+                        agent
+                        for agent in self.model.grid.get_cell_list_contents(
+                            [self.current_task.start]
+                        )
+                        if isinstance(agent, Pallet)
+                    ][0]
                     pallet.robot = self
 
                     temp_pos = self.pos
@@ -146,6 +169,32 @@ class Robot(Agent):
                     self.get_storage(self.next_path[0]).is_available = False
             else:
                 return
+
+        elif self.state == RS.CALCULATING_PATH:
+            self.print_robot_data(f"calculating paths for {self.current_task}")
+            self.state = RS.MOVING_TO_PALLET
+            if self.current_task.start is None:
+                # Find closest pallet
+                self.path, pallet = self.find_closest_pallet(self.current_task.product)
+                pallet.robot = self
+                self.broadcast_message(Msg.TOOK_PALLET, pallet)
+            else:
+                self.path = self.find_path(self.current_task.start)
+                pallet = [
+                    agent
+                    for agent in self.model.grid.get_cell_list_contents(
+                        [self.current_task.start]
+                    )
+                    if isinstance(agent, Pallet)
+                ][0]
+                pallet.robot = self
+
+                temp_pos = self.pos
+                self.pos = self.current_task.start
+                self.next_path = self.find_closest_storage()
+                self.pos = temp_pos
+                self.print_robot_data(f"{self.next_path}")
+                self.get_storage(self.next_path[0]).is_available = False
 
         elif self.state == RS.MOVING_TO_PALLET and not self.path:
             if self.get_storage(self.pos) is not None:
@@ -181,6 +230,14 @@ class Robot(Agent):
                 self.current_task = None
                 return
 
+            available_positions = [
+                pos
+                for pos in self.model.grid.get_neighborhood(self.pos, moore=False)
+                if self.model.grid.is_cell_empty(pos)
+            ]
+            index = np.random.randint(0, len(available_positions))
+            self.next_pos = available_positions[index]
+            
             self.unload_pallet()
 
             self.current_task = None
@@ -189,23 +246,65 @@ class Robot(Agent):
         elif self.state == RS.CHARGING:
             if self.battery >= 90:
                 self.state = RS.IDLE
+                available_positions = [
+                    pos
+                    for pos in self.model.grid.get_neighborhood(self.pos, moore=False)
+                    if self.model.grid.is_cell_empty(pos)
+                ]
+                index = np.random.randint(0, len(available_positions))
+                self.next_pos = available_positions[index]
             return
 
         if self.path:
             self.next_pos = self.path.pop()
 
     def advance(self) -> None:
-        if self.battery <= 0:
-            return
-
         charging_station = self.model.grid.get_cell_list_contents([self.pos])
         if any(isinstance(station, ChargingStation) for station in charging_station):
             self.recharge()
         else:
             if self.battery > 0:
-                self.battery -= 1
+                self.battery -= 0.25
 
-        if self.next_pos is not None:
+        if self.battery <= 0:
+            return
+
+        if self.next_pos is not None and self.state != RS.WAITING_FOR_CHARGING_STATION:
+            # check if another robot is in the next position
+            agents = self.model.grid.get_cell_list_contents([self.next_pos])
+            robots_going_to_next_pos = [
+                agent
+                for agent in self.model.grid.get_neighbors(self.pos, moore=False)
+                if isinstance(agent, Robot) and agent.next_pos == self.next_pos
+            ]
+            robot_in_next_pos = [
+                agent for agent in agents if isinstance(agent, Robot)
+            ]
+            print(f"----- Robot {self.unique_id} -> {self.next_pos} -> {agents}, {robot_in_next_pos}, {robots_going_to_next_pos} ------")
+
+            if any(
+                isinstance(agent, Robot)
+                and (agent.state == RS.IDLE or agent.steps_to_wait 
+                     or agent.state == RS.WAITING_FOR_CHARGING_STATION
+                     or agent.state == RS.CHARGING)
+                for agent in agents
+            ):
+                # if destination is charging station, wait
+                if self.next_pos in [station.pos for station in self.charging_stations]:
+                    self.state = RS.WAITING_FOR_CHARGING_STATION
+                    return
+
+                self.recalculate_path([self.next_pos])
+                self.next_pos = self.path.pop()
+            elif any(robot_in_next_pos):
+                if id(self) < id(robot_in_next_pos[0]):
+                    self.steps_to_wait = 3
+                else:
+                    self.recalculate_path([self.next_pos])
+            elif any(robots_going_to_next_pos):
+                if min([robot.battery for robot in robots_going_to_next_pos]) < self.battery:
+                    self.steps_to_wait = 3
+
             for pallet in self.pallets:
                 # if pallet.pos is None:
                 #     self.pallets.remove(pallet)
@@ -215,6 +314,27 @@ class Robot(Agent):
             self.model.grid.move_agent(self, self.next_pos)
             self.next_pos = None
             self.path_cache = {}
+            self.battery -= 0.25
+
+    def recalculate_path(self, obstacles: List[Tuple[int, int]]) -> None:
+        if not self.path:
+            self.path = [self.pos]
+            return
+        if (
+            self.current_task is not None
+            and (
+                self.current_task.destination is None
+                and self.state == RS.MOVING_TO_DESTINATION
+                or self.current_task.start is None
+                and self.state == RS.MOVING_TO_PALLET
+            )
+            and self.get_storage(self.path[0]) is not None
+        ):
+            temp_path = self.find_path(self.path[1], obstacles)
+            temp_path.insert(0, self.path[0])
+            self.path = temp_path
+        else:
+            self.path = self.find_path(self.path[0], obstacles)
 
     def send_message(self, subject: Msg, data: Any) -> None:
         self.messages.append((subject, data))
@@ -246,6 +366,9 @@ class Robot(Agent):
                     f"removing pallet {message[1]} from available pallets list ({self.available_pallets})"
                 )
                 self.available_pallets.remove(message[1])
+            elif message[0] == Msg.DO_TASK:
+                self.current_task = message[1]
+                self.state = RS.CALCULATING_PATH
 
     def get_storage(self, pos: Tuple[int, int]) -> Optional[Storage]:
         for storage in self.storage:
@@ -268,44 +391,90 @@ class Robot(Agent):
         self.filter_tasks()
 
         if len(self.tasks) > 0:
-            # Find the closest task
-            if any(storage.is_available for storage in self.storage):
-                paths_storage = {
-                    task: self.find_path(task.start)
-                    for task in self.tasks
-                    if task.start is not None  # and task.robot is None
-                }
-            else:
-                self.print_robot_data(f"Skipping storage tasks")
-                paths_storage = {}
+            for task in self.tasks:
+                if task.is_best_for_robot(self):
+                    self.current_task = task
+                    return
 
-            paths_dropoff = {
-                task: self.find_path(task.destination)
-                for task in self.tasks
-                if task.destination is not None
-                and self.has_available_pallet(task.product)  # and task.robot is None
-            }
+        #     # Find the closest task
+        #     if any(storage.is_available for storage in self.storage):
+        #         paths_storage = {
+        #             task: self.find_path(task.start)
+        #             for task in self.tasks
+        #             if task.start is not None
+        #         }
+        #     else:
+        #         self.print_robot_data(f"Skipping storage tasks")
+        #         paths_storage = {}
 
-            if len(paths_storage) == 0 and len(paths_dropoff) == 0:
-                return
-            if len(paths_storage) == 0:
-                self.current_task = min(
-                    paths_dropoff, key=lambda task: len(paths_dropoff[task])
-                )
-                return
-            if len(paths_dropoff) == 0:
-                self.current_task = min(
-                    paths_storage, key=lambda task: len(paths_storage[task])
-                )
-                return
+        #     paths_dropoff = {
+        #         task: self.find_path(task.destination)
+        #         for task in self.tasks
+        #         if task.destination is not None
+        #         and self.has_available_pallet(task.product)
+        #     }
 
-            min_storage = min(paths_storage, key=lambda task: len(paths_storage[task]))
-            min_dropoff = min(paths_dropoff, key=lambda task: len(paths_dropoff[task]))
+        #     if len(paths_storage) == 0 and len(paths_dropoff) == 0:
+        #         return
+        #     if len(paths_storage) == 0:
+        #         self.current_task = min(
+        #             paths_dropoff, key=lambda task: len(paths_dropoff[task])
+        #         )
+        #         return
+        #     if len(paths_dropoff) == 0:
+        #         self.current_task = min(
+        #             paths_storage, key=lambda task: len(paths_storage[task])
+        #         )
+        #         return
 
-            if len(paths_storage[min_storage]) < len(paths_dropoff[min_dropoff]):
-                self.current_task = min_storage
-            else:
-                self.current_task = min_dropoff
+        #     min_storage = min(paths_storage, key=lambda task: len(paths_storage[task]))
+        #     min_dropoff = min(paths_dropoff, key=lambda task: len(paths_dropoff[task]))
+
+        #     if len(paths_storage[min_storage]) < len(paths_dropoff[min_dropoff]):
+        #         self.current_task = min_storage
+        #     else:
+        #         self.current_task = min_dropoff
+
+    # def find_best_task_all(self) -> None:
+    #     robots = [
+    #         robot
+    #         for robot in self.model.schedule.agents
+    #         if isinstance(robot, Robot)
+    #         and robot.state == RS.IDLE
+    #     ]
+
+    #     tasks_dict: Dict[Task, Optional[Tuple[int, Robot]]] = {task: None for task in self.tasks}
+
+    #     for robot in robots:
+    #         # robot.filter_tasks()
+    #         if any(storage.is_available for storage in robot.storage):
+    #             paths_storage = {
+    #                 task: robot.find_path(task.start)
+    #                 for task in robot.tasks
+    #                 if task.start is not None
+    #             }
+    #         else:
+    #             paths_storage = {}
+            
+    #         for task in paths_storage:
+    #             if tasks_dict[task] is None:
+    #                 tasks_dict[task] = (len(paths_storage[task]), robot)
+    #             elif tasks_dict[task][0] > len(paths_storage[task]):
+    #                 tasks_dict[task] = (len(paths_storage[task]), robot)
+
+    #         paths_dropoff = {
+    #             task: robot.find_path(task.destination)
+    #             for task in robot.tasks
+    #             if task.destination is not None
+    #             and robot.has_available_pallet(task.product)
+    #         }
+
+    #         for task in paths_dropoff:
+    #             if tasks_dict[task] is None:
+    #                 tasks_dict[task] = (len(paths_dropoff[task]), robot)
+    #             elif tasks_dict[task][0] > len(paths_dropoff[task]):
+    #                 tasks_dict[task] = (len(paths_dropoff[task]), robot)
+
 
     def find_charging_stations(self) -> None:
         charging_stations = self.model.grid.get_neighbors(
@@ -327,13 +496,18 @@ class Robot(Agent):
             return paths[charging_station_pos]
         return None
 
-    def find_path(self, position) -> List[Tuple[int, int]]:
+    def find_path(
+        self, position, obstacles: Optional[List[Tuple[int, int]]] = None
+    ) -> List[Tuple[int, int]]:
         if self.path_cache != {}:
             return self.path_cache[position]
 
-        return self.find_paths([position])[position]
+        return self.find_paths([position], obstacles)[position]
 
     def find_closest_pallet(self, product) -> Tuple[List[Tuple[int, int]], Pallet]:
+        if len(self.available_pallets) == 0:
+            return [], None
+        
         paths = {
             pallet: self.find_path(pallet.pos)
             for pallet in self.available_pallets
@@ -342,8 +516,17 @@ class Robot(Agent):
         pallet = min(paths, key=lambda pallet: len(paths[pallet]))
         return paths[pallet], pallet
 
+    def has_available_storage(self) -> bool:
+        return any(storage.is_available for storage in self.storage)
+
     def find_closest_storage(self) -> List[Tuple[int, int]]:
-        storage_destinations = [storage.entry_pos for storage in self.storage if storage.is_available]
+        storage_destinations = [
+            storage.entry_pos for storage in self.storage if storage.is_available
+        ]
+
+        if len(storage_destinations) == 0:
+            return []
+
         paths = self.find_paths(storage_destinations)
 
         storage_entry_pos = min(paths, key=lambda pos: len(paths[pos]))
@@ -393,12 +576,19 @@ class Robot(Agent):
 
     @staticmethod
     def is_obstacle(agents: List[Agent]) -> bool:
-        return any([any([
-            isinstance(agent, Storage),
-            isinstance(agent, ChargingStation),
-            # isinstance(agent, Robot),
-            isinstance(agent, Storage),
-        ]) for agent in agents])
+        return any(
+            [
+                any(
+                    [
+                        isinstance(agent, Storage),
+                        isinstance(agent, ChargingStation),
+                        # isinstance(agent, Robot),
+                        isinstance(agent, Storage),
+                    ]
+                )
+                for agent in agents
+            ]
+        )
 
     # def is_storage(self, pos: Tuple[int, int]) -> bool:
     #     for storage in self.available_storage:
@@ -410,27 +600,23 @@ class Robot(Agent):
     #         if pallet.pos == pos:
     #             return True
 
-    def find_paths(self, positions) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
+    def find_paths(
+        self, positions, obstacles: Optional[List[Tuple]] = None
+    ) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
         """
         Calculates the shortest path from the current position to the indicated
         position. Returns a list of positions representing the path.
         """
 
-        # TODO: Update function to account for storage, since robots can only enter from one direction
-
-        if self.path_cache != {}:
-            print("Using cache")
-            return self.path_cache
-        if len(positions) == 0:
-            return {}
+        if obstacles is None:
+            obstacles = []
 
         # Djisktra in python
         non_visited_positions = [
             pos
             for agents, pos in self.model.grid.coord_iter()
-            if not self.is_obstacle(agents)
-            # and not self.is_storage(pos)
-            or pos in positions
+            if (not self.is_obstacle(agents) or pos in positions)
+            and pos not in obstacles
         ]
         non_visited_positions.append(self.pos)
 

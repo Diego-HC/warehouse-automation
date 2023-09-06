@@ -14,6 +14,7 @@ class Msg(IntEnum):
     CHARGING_STATION = 4
     AVAILABLE_STORAGE = 5
     UNAVAILABLE_STORAGE = 6
+    DO_TASK = 7
 
 
 class RS(IntEnum):
@@ -25,6 +26,8 @@ class RS(IntEnum):
     MOVING_TO_STATION = 3
     CHARGING = 4
     MOVING_TO_ENTRY_POINT = 5
+    WAITING_FOR_CHARGING_STATION = 6
+    CALCULATING_PATH = 7
 
 
 class Dir(IntEnum):

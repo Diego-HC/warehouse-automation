@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import Optional, Union, Tuple, TYPE_CHECKING
 
 from mesa.model import Model
 from mesa.agent import Agent
 
-from .enums import Dir, Product, calc_pos
+from .enums import RS, Dir, Product, calc_pos
 
 if TYPE_CHECKING:
     from .robot import Robot
@@ -99,6 +99,28 @@ class Task:
         self.destination: Optional[Tuple[int, int]] = destination
         self.robot: Optional[Robot] = None
         self.id = id_
+
+    def is_best_for_robot(self, robot: Robot) -> bool:
+        robots = [robot for robot in robot.model.robots if robot.state == RS.IDLE]
+
+        if not robots:
+            return False
+
+        if self.start is not None:
+            if not robot.has_available_storage():
+                return False
+            def min_key(r: Robot) -> int:
+                return len(r.find_path(self.start))
+            
+            return robot == min(robots, key=min_key)
+        else:
+            if not robot.has_available_pallet(self.product):
+                return False
+
+            def min_key(r: Robot) -> Union[int, float]:
+                return len(r.find_closest_pallet(self.product)[0])
+            
+            return robot == min(robots, key=min_key)
 
     def __repr__(self) -> str:
         return (f"<Task product={self.product}, start={self.start}, "
