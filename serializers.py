@@ -1,6 +1,7 @@
 from typing import Dict, Any, Tuple
 from mesa import Agent
 from model import Warehouse, Robot, Pallet
+from model.stationary import Spawner
 
 
 def serialize_pallet(pallet: Pallet) -> Dict[str, Any]:
@@ -30,6 +31,8 @@ def serialize_generic_agent(agent: Agent) -> Dict[str, Any]:
         resp["direction"] = ["up", "down", "left", "right"][agent.direction]
     except AttributeError:
         pass
+    if isinstance(agent, Spawner):
+        resp["spawns_items"] = agent.spawns_items
     return resp
 
 
